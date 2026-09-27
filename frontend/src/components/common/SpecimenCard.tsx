@@ -6,6 +6,8 @@ import StatusTag from './StatusTag'
 export interface SpecimenCardProps {
   specimen: Specimen
   site?: CollectSite
+  /** 所属批次名称（未传则显示「未关联批次」） */
+  batchName?: string
   /** 是否处于选中态 */
   selected?: boolean
   /** 左上角勾选（批量操作） */
@@ -16,10 +18,11 @@ export interface SpecimenCardProps {
   footer?: ReactNode
 }
 
-/** 标本摘要卡片：分类阶元 + 采集地 + 鉴定状态 */
+/** 标本摘要卡片：分类阶元 + 采集地 + 批次 + 鉴定状态 */
 export default function SpecimenCard({
   specimen,
   site,
+  batchName,
   selected = false,
   selectable = false,
   onToggle,
@@ -80,6 +83,10 @@ export default function SpecimenCard({
         <div>
           <dt className="text-slate-400">采集人</dt>
           <dd>{specimen.collector || '—'}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-400">采集批次</dt>
+          <dd>{batchName || '未关联批次'}</dd>
         </div>
       </dl>
       {specimen.note ? <p className="rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-500">{specimen.note}</p> : null}

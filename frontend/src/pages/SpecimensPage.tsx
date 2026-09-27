@@ -5,22 +5,26 @@ import { DET_STATUSES } from '@/types'
 import SpecimenCard from '@/components/common/SpecimenCard'
 import StatusTag from '@/components/common/StatusTag'
 import { usePersistentStore } from '@/hooks/usePersistentStore'
-import { useSpecimenFilter } from '@/hooks/useSpecimenFilter'
+import { NO_BATCH, useSpecimenFilter } from '@/hooks/useSpecimenFilter'
 import { specimenStore } from '@/stores/specimenStore'
 import { siteStore } from '@/stores/siteStore'
+import { batchStore } from '@/stores/batchStore'
 import { downloadCsv } from '@/utils/export'
 import { specimenTaxon } from '@/utils/codec'
 
-/** 标本清单：组合筛选 + 多选批量推进鉴定状态 */
+/** 标本清单：组合筛选（含按批次查看）+ 多选批量推进鉴定状态 / 批量调整批次归属 */
 export default function SpecimensPage(): JSX.Element {
   const specimens = usePersistentStore(specimenStore, (state) => state.rows)
   const sites = usePersistentStore(siteStore, (state) => state.rows)
+  const batches = usePersistentStore(batchStore, (state) => state.rows)
   const { filter, setFilter, reset, filtered, hitCount, orders, families } = useSpecimenFilter(specimens)
   const [selected, setSelected] = useState<string[]>([])
   const [batchStatus, setBatchStatus] = useState<DetStatus>('初鉴')
+  const [assignTarget, setAssignTarget] = useState('')
   const [message, setMessage] = useState('')
 
   const siteMap = useMemo(() => new Map(sites.map((site) => [site.id, site])), [sites])
+  const batchMap = useMemo(() => new Map(batches.map((batch) => [batch.id, batch])), [batches])
   const selectedSet = useMemo(() => new Set(selected), [selected])
 
   const toggle = (id: string): void => {
@@ -41,11 +45,34 @@ export default function SpecimensPage(): JSX.Element {
     setSelected([])
   }
 
+  /** 批量调整批次归属；空目标表示移出批次（置为未关联） */
+  const applyAssign = async (): Promise<void> => {
+    if (selected.length === 0) {
+      setMessage('请先勾选要调整归属的标本')
+      return
+    }
+    const target = batches.find((batch) => batch.id === assignTarget)
+    if (assignTarget && !target) {
+      setMessage('目标批次不存在，请重新选择')
+      return
+    }
+    if (target?.sealed) {
+      setMessage(`批次「${target.name}」已封存，不再接收新标本`)
+      return
+    }
+    await specimenStore.getState().bulkSetBatch(selected, assignTarget)
+    setMessage(
+      target ? `已把 ${selected.length} 份标本归入「${target.name}」` : `已把 ${selected.length} 份标本移出批次（置为未关联）`
+    )
+    setSelected([])
+  }
+
   const exportList = (): void => {
     const rows = filtered.map((item: Specimen) => ({
       code: item.code,
       taxon: specimenTaxon(item),
       site: siteMap.get(item.siteId)?.name ?? '',
+      batch: batchMap.get(item.batchId)?.name ?? '',
       collectDate: item.collectDate,
       method: item.method,
       quantity: item.quantity,
@@ -56,6 +83,7 @@ export default function SpecimensPage(): JSX.Element {
       { key: 'code', label: '标本编号' },
       { key: 'taxon', label: '分类阶元' },
       { key: 'site', label: '采集地' },
+      { key: 'batch', label: '采集批次' },
       { key: 'collectDate', label: '采集日期' },
       { key: 'method', label: '采集方式' },
       { key: 'quantity', label: '数量' },
@@ -72,7 +100,7 @@ export default function SpecimensPage(): JSX.Element {
         <div>
           <h1 className="page-title">标本清单</h1>
           <p className="page-sub">
-            按目/科、鉴定状态与采集日期区间筛选，多选后可批量推进鉴定状态；编号规则为「采集地代码-年份-流水号」。
+            按目/科、鉴定状态、采集批次与采集日期区间筛选，多选后可批量推进鉴定状态或调整批次归属；编号规则为「采集地代码-年份-流水号」。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -143,6 +171,23 @@ export default function SpecimensPage(): JSX.Element {
           </select>
         </div>
         <div>
+          <span className="field-label">采集批次</span>
+          <select
+            className="field-input w-48"
+            value={filter.batchId}
+            onChange={(e) => setFilter({ batchId: e.target.value })}
+          >
+            <option value="">全部</option>
+            <option value={NO_BATCH}>未关联批次</option>
+            {batches.map((batch) => (
+              <option key={batch.id} value={batch.id}>
+                {batch.name}
+                {batch.sealed ? '（已封存）' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
           <span className="field-label">采集日期起</span>
           <input
             type="date"
@@ -195,6 +240,24 @@ export default function SpecimensPage(): JSX.Element {
         <button className="btn-primary" type="button" onClick={() => void applyBatch()}>
           批量推进状态
         </button>
+        <select
+          className="field-input w-48"
+          value={assignTarget}
+          onChange={(e) => setAssignTarget(e.target.value)}
+          aria-label="目标批次"
+        >
+          <option value="">移出批次（置为未关联）</option>
+          {batches
+            .filter((batch) => !batch.sealed)
+            .map((batch) => (
+              <option key={batch.id} value={batch.id}>
+                归入「{batch.name}」
+              </option>
+            ))}
+        </select>
+        <button className="btn-primary" type="button" onClick={() => void applyAssign()}>
+          批量调整归属
+        </button>
         <div className="ml-auto flex flex-wrap gap-2 text-xs text-slate-500">
           {DET_STATUSES.map((status) => (
             <span key={status} className="inline-flex items-center gap-1">
@@ -211,6 +274,7 @@ export default function SpecimensPage(): JSX.Element {
             key={specimen.id}
             specimen={specimen}
             site={siteMap.get(specimen.siteId)}
+            batchName={batchMap.get(specimen.batchId)?.name}
             selectable
             selected={selectedSet.has(specimen.id)}
             onToggle={toggle}

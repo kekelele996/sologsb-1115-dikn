@@ -62,11 +62,11 @@ sologsb-1115/
 │   ├── tailwind.config.js / postcss.config.js
 │   ├── public/favicon.svg
 │   └── src/
-│       ├── types/              # specimen.ts / site.ts / storage.ts / determination.ts / index.ts
-│       ├── stores/             # specimenStore / siteStore / storageStore / determinationStore（Zustand）
+│       ├── types/              # specimen.ts / site.ts / storage.ts / determination.ts / batch.ts / index.ts
+│       ├── stores/             # specimenStore / siteStore / storageStore / determinationStore / batchStore（Zustand）
 │       ├── components/common/  # SpecimenCard / StatusTag / CabinetGrid / SitePicker
 │       ├── hooks/              # usePersistentStore / useSpecimenFilter
-│       ├── pages/              # SpecimensPage / SitesPage / CollectPage / DeterminationPage / StoragePage
+│       ├── pages/              # SpecimensPage / SitesPage / CollectPage / BatchesPage / DeterminationPage / StoragePage
 │       ├── router/index.tsx
 │       └── utils/              # codec.ts / export.ts / id.ts
 ```
@@ -75,22 +75,26 @@ sologsb-1115/
 
 | 模型 | 说明 | Dexie 表 |
 | --- | --- | --- |
-| Specimen 标本 | 编号、目/科/属/种、暂定名、采集日期与人、性别虫态、体长、采集方式、数量、鉴定状态 | `specimens` |
+| Specimen 标本 | 编号、目/科/属/种、暂定名、采集日期与人、性别虫态、体长、采集方式、数量、鉴定状态、所属批次 | `specimens` |
 | CollectSite 采集地 | 代码、名称、行政区、经纬度海拔、生境类型、小生境、微气候、采集日期区间 | `sites` |
 | Storage 保藏位置 | 保藏方式、柜/抽屉/盒/插位序号、入柜日期、经手人 | `storages` |
 | Determination 鉴定记录 | 鉴定人、日期、结论（学名）、依据文献、置信度、是否需复核 | `determinations` |
+| CollectBatch 采集批次 | 批次名称、采集日期范围、负责人、计划采集地、封存状态与封存日期 | `batches` |
 
 - 数据库名 `gbinsectlog`，`meta` 表保存 `schemaVersion`；
 - `version(2)` 升级迁移会为历史标本补齐默认采集方式（扫网）；
+- `version(3)` 新增「采集批次」表，迁移会为历史标本补齐空批次归属（未关联批次）；
 - 标本编号规则：`采集地代码-年份-流水号`（如 `QLB-2026-0007`），提交时自动分配并查重；
+- 当前选用的批次 id 保存在 localStorage，刷新后采集登记仍带批次；
 - 数据仅存于浏览器本地，容器无状态、不挂载命名卷。
 
 ## 六、主要页面
 
 | 路由 | 功能 |
 | --- | --- |
-| `/specimens` | 标本清单：按目/科、鉴定状态、采集地、采集日期区间与关键字组合筛选，多选批量推进鉴定状态，导出命中清单 |
-| `/collect` | 采集登记：选择采集地后自动带出生境/小生境/微气候，一次提交多条同批次标本，编号自动生成并查重 |
+| `/specimens` | 标本清单：按目/科、鉴定状态、采集地、采集批次、采集日期区间与关键字组合筛选，多选批量推进鉴定状态或调整批次归属，导出命中清单 |
+| `/collect` | 采集登记：先建/选采集批次，之后登记的标本自动带入当前批次；选择采集地后自动带出生境/小生境/微气候，一次提交多条标本，编号自动生成并查重 |
+| `/batches` | 采集批次：建立批次（名称/日期范围/负责人/计划采集地），计划点位覆盖与漏采提示，收队封存前异常检查，空批次清除 |
 | `/sites` | 采集地管理：经纬度格式校验、各地采集次数统计、50 米内邻近采集地提示与一键合并 |
 | `/determination` | 鉴定工作流：待鉴定队列逐条处理，落鉴定记录并自动推进标本状态（已鉴定 / 待复核） |
 | `/storage` | 保藏柜位图：柜-抽屉-盒-位三级展开，空位/占用一目了然，拖拽入柜，重复占用给出占用提示 |
@@ -100,4 +104,8 @@ sologsb-1115/
 - 采集地代码是标本编号前缀，代码重复会被拒绝；
 - 坐标 50 米内视为同一采集地，页面上给出合并提示，合并会把原采集地标本自动改挂；
 - 鉴定记录提交后自动把标本状态推进为「已鉴定」，勾选「需复核」则置为「待复核」；
-- 同一柜位（柜-屉-盒-位）只允许一份标本，冲突时列出已有标本编号。
+- 同一柜位（柜-屉-盒-位）只允许一份标本，冲突时列出已有标本编号；
+- 选用当前批次后，采集登记提交的标本自动带入该批次；登记时日期超范围或采集地不在计划内会提前提示；
+- 收队封存前逐份检查批次内标本：采集日期超出批次范围、或采集地不在计划采集地内的，列为异常标本并暂不封存，调整归属或修正后才能封存；
+- 批次封存后不再接收新标本（登记与批量调整归属都会拒绝），已封存批次下的标本仍可移出；
+- 没有关联标本的批次可以直接清除；批次下已有标本时需先移走（批次页「移出全部标本」或标本清单批量调整归属）再清除。

@@ -40,5 +40,7 @@ export interface Specimen {
   status: DetStatus
   determiner: string
   siteId: string
+  /** 所属采集批次 id，空串表示未关联批次 */
+  batchId: string
   note: string
 }
