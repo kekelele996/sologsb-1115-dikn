@@ -1,22 +1,23 @@
 import { useStore } from 'zustand'
 import type { StoreApi, UseBoundStore } from 'zustand'
 import Dexie, { type Table } from 'dexie'
-import type { CollectSite, Determination, Specimen, Storage } from '@/types'
+import type { CollectBatch, CollectSite, Determination, Specimen, Storage } from '@/types'
 
 /** IndexedDB 数据结构版本号 */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export interface MetaRow {
   key: string
-  value: number
+  value: number | string
 }
 
-/** Dexie 封装：标本 / 采集地 / 保藏位置 / 鉴定记录 四张业务表 + 元数据表 */
+/** Dexie 封装：标本 / 采集地 / 保藏位置 / 鉴定记录 / 采集批次 五张业务表 + 元数据表 */
 class InsectLogDb extends Dexie {
   specimens!: Table<Specimen, string>
   sites!: Table<CollectSite, string>
   storages!: Table<Storage, string>
   determinations!: Table<Determination, string>
+  batches!: Table<CollectBatch, string>
   meta!: Table<MetaRow, string>
 
   constructor() {
@@ -44,6 +45,26 @@ class InsectLogDb extends Dexie {
           .modify((specimen) => {
             if (!specimen.method) {
               specimen.method = '扫网'
+            }
+          })
+      })
+    // v3：新增「采集批次」，历史标本批次置空（未关联批次）
+    this.version(SCHEMA_VERSION)
+      .stores({
+        specimens: 'id, code, order, family, status, siteId, collectDate, batchId',
+        sites: 'id, code, name, habitat',
+        storages: 'id, specimenId, cabinet, drawer',
+        determinations: 'id, specimenId, determiner, date',
+        batches: 'id, name, dateStart, sealed',
+        meta: 'key'
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table<Specimen, string>('specimens')
+          .toCollection()
+          .modify((specimen) => {
+            if (!specimen.batchId) {
+              specimen.batchId = ''
             }
           })
       })
@@ -151,6 +172,7 @@ export async function seedDemoData(): Promise<void> {
       status: '已鉴定',
       determiner: '覃羽',
       siteId: 'site_qlb',
+      batchId: 'batch_2026qn',
       note: '倒木下采集，鞘翅完整'
     },
     {
@@ -171,6 +193,7 @@ export async function seedDemoData(): Promise<void> {
       status: '初鉴',
       determiner: '覃羽',
       siteId: 'site_qlb',
+      batchId: 'batch_2026qn',
       note: '灯诱 20:30–22:00，翅面有磨损'
     },
     {
@@ -191,6 +214,7 @@ export async function seedDemoData(): Promise<void> {
       status: '待复核',
       determiner: '蓝澈',
       siteId: 'site_shr',
+      batchId: 'batch_2026qn',
       note: '与相近种混淆，需核对翅脉'
     },
     {
@@ -211,9 +235,26 @@ export async function seedDemoData(): Promise<void> {
       status: '待鉴定',
       determiner: '',
       siteId: 'site_shr',
+      batchId: 'batch_2026qn',
       note: '酒精浸液保存，待制片'
     }
   ])
+
+  await db.batches.bulkPut([
+    {
+      id: 'batch_2026qn',
+      name: '2026 黔南春季调查',
+      dateStart: today,
+      dateEnd: today,
+      leader: '陆昀',
+      siteIds: ['site_qlb', 'site_shr'],
+      sealed: false,
+      sealedDate: '',
+      note: '首轮样线与灯诱同步进行'
+    }
+  ])
+
+  await db.meta.put({ key: 'currentBatchId', value: 'batch_2026qn' })
 
   await db.determinations.bulkPut([
     {

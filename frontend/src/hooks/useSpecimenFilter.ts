@@ -6,16 +6,22 @@ export interface SpecimenFilterState {
   family: string
   status: DetStatus | ''
   siteId: string
+  /** 批次 id；空串为全部，NONE 表示「未关联批次」 */
+  batchId: string
   dateFrom: string
   dateTo: string
   keyword: string
 }
+
+/** 筛选条件中「未关联批次」的取值 */
+export const BATCH_NONE = '__none__'
 
 export const EMPTY_FILTER: SpecimenFilterState = {
   order: '',
   family: '',
   status: '',
   siteId: '',
+  batchId: '',
   dateFrom: '',
   dateTo: '',
   keyword: ''
@@ -54,6 +60,8 @@ export function useSpecimenFilter(specimens: Specimen[]): {
       if (filter.family && item.family !== filter.family) return false
       if (filter.status && item.status !== filter.status) return false
       if (filter.siteId && item.siteId !== filter.siteId) return false
+      if (filter.batchId === BATCH_NONE && item.batchId) return false
+      if (filter.batchId && filter.batchId !== BATCH_NONE && item.batchId !== filter.batchId) return false
       if (filter.dateFrom && item.collectDate < filter.dateFrom) return false
       if (filter.dateTo && item.collectDate > filter.dateTo) return false
       if (keyword) {

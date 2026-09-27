@@ -62,13 +62,13 @@ sologsb-1115/
 │   ├── tailwind.config.js / postcss.config.js
 │   ├── public/favicon.svg
 │   └── src/
-│       ├── types/              # specimen.ts / site.ts / storage.ts / determination.ts / index.ts
-│       ├── stores/             # specimenStore / siteStore / storageStore / determinationStore（Zustand）
+│       ├── types/              # specimen.ts / site.ts / storage.ts / determination.ts / batch.ts / index.ts
+│       ├── stores/             # specimenStore / siteStore / storageStore / determinationStore / batchStore（Zustand）
 │       ├── components/common/  # SpecimenCard / StatusTag / CabinetGrid / SitePicker
 │       ├── hooks/              # usePersistentStore / useSpecimenFilter
-│       ├── pages/              # SpecimensPage / SitesPage / CollectPage / DeterminationPage / StoragePage
+│       ├── pages/              # SpecimensPage / SitesPage / CollectPage / BatchesPage / DeterminationPage / StoragePage
 │       ├── router/index.tsx
-│       └── utils/              # codec.ts / export.ts / id.ts
+│       └── utils/              # codec.ts / export.ts / id.ts / batch.ts
 ```
 
 ## 五、数据模型与存储
@@ -79,9 +79,10 @@ sologsb-1115/
 | CollectSite 采集地 | 代码、名称、行政区、经纬度海拔、生境类型、小生境、微气候、采集日期区间 | `sites` |
 | Storage 保藏位置 | 保藏方式、柜/抽屉/盒/插位序号、入柜日期、经手人 | `storages` |
 | Determination 鉴定记录 | 鉴定人、日期、结论（学名）、依据文献、置信度、是否需复核 | `determinations` |
+| CollectBatch 采集批次 | 批次名称、日期范围、负责人、计划采集地、封存状态 | `batches` |
 
 - 数据库名 `gbinsectlog`，`meta` 表保存 `schemaVersion`；
-- `version(2)` 升级迁移会为历史标本补齐默认采集方式（扫网）；
+- `version(2)` 升级迁移会为历史标本补齐默认采集方式（扫网），`version(3)` 新增采集批次表并把历史标本批次置空；
 - 标本编号规则：`采集地代码-年份-流水号`（如 `QLB-2026-0007`），提交时自动分配并查重；
 - 数据仅存于浏览器本地，容器无状态、不挂载命名卷。
 
@@ -90,7 +91,8 @@ sologsb-1115/
 | 路由 | 功能 |
 | --- | --- |
 | `/specimens` | 标本清单：按目/科、鉴定状态、采集地、采集日期区间与关键字组合筛选，多选批量推进鉴定状态，导出命中清单 |
-| `/collect` | 采集登记：选择采集地后自动带出生境/小生境/微气候，一次提交多条同批次标本，编号自动生成并查重 |
+| `/collect` | 采集登记：选择采集地后自动带出生境/小生境/微气候，一次提交多条同批次标本，编号自动生成并查重；登记的标本自动带入当前采集批次 |
+| `/batches` | 采集批次：建立批次（名称/日期范围/负责人/计划采集地），设为当前批次，收队封存前核对异常标本，空批次可清除 |
 | `/sites` | 采集地管理：经纬度格式校验、各地采集次数统计、50 米内邻近采集地提示与一键合并 |
 | `/determination` | 鉴定工作流：待鉴定队列逐条处理，落鉴定记录并自动推进标本状态（已鉴定 / 待复核） |
 | `/storage` | 保藏柜位图：柜-抽屉-盒-位三级展开，空位/占用一目了然，拖拽入柜，重复占用给出占用提示 |
@@ -100,4 +102,5 @@ sologsb-1115/
 - 采集地代码是标本编号前缀，代码重复会被拒绝；
 - 坐标 50 米内视为同一采集地，页面上给出合并提示，合并会把原采集地标本自动改挂；
 - 鉴定记录提交后自动把标本状态推进为「已鉴定」，勾选「需复核」则置为「待复核」；
-- 同一柜位（柜-屉-盒-位）只允许一份标本，冲突时列出已有标本编号。
+- 同一柜位（柜-屉-盒-位）只允许一份标本，冲突时列出已有标本编号；
+- 采集登记以「当前批次」归集标本：封存时若标本日期超出批次范围或采集地不在计划内，会列出异常并暂不封存；封存后不再接收新标本；批次内已有标本时需先移走才能清除。

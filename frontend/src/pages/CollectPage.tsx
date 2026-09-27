@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { CollectMethod, Sex, Specimen, Stage } from '@/types'
 import { COLLECT_METHODS, ORDERS, SEXES, STAGES } from '@/types'
 import SpecimenCard from '@/components/common/SpecimenCard'
@@ -6,6 +7,7 @@ import SitePicker from '@/components/common/SitePicker'
 import { usePersistentStore } from '@/hooks/usePersistentStore'
 import { specimenStore } from '@/stores/specimenStore'
 import { siteStore } from '@/stores/siteStore'
+import { batchStore } from '@/stores/batchStore'
 import { allocateSpecimenCode, isDuplicateCode } from '@/utils/codec'
 import { uid } from '@/utils/id'
 
@@ -43,6 +45,8 @@ const newDraft = (): DraftRow => ({
 export default function CollectPage(): JSX.Element {
   const sites = usePersistentStore(siteStore, (state) => state.rows)
   const specimens = usePersistentStore(specimenStore, (state) => state.rows)
+  const batches = usePersistentStore(batchStore, (state) => state.rows)
+  const currentBatchId = usePersistentStore(batchStore, (state) => state.currentId)
 
   const [siteId, setSiteId] = useState('')
   const [collectDate, setCollectDate] = useState(new Date().toISOString().slice(0, 10))
@@ -53,7 +57,22 @@ export default function CollectPage(): JSX.Element {
   const [justCreated, setJustCreated] = useState<Specimen[]>([])
 
   const site = sites.find((item) => item.id === siteId)
+  const currentBatch = batches.find((item) => item.id === currentBatchId)
+  const openBatches = batches.filter((item) => !item.sealed)
   const year = collectDate.slice(0, 4) || String(new Date().getFullYear())
+
+  /** 与当前批次计划的偏离提示（不阻止登记，封存时会标为异常） */
+  const batchWarnings = useMemo(() => {
+    if (!currentBatch) return []
+    const warnings: string[] = []
+    if (collectDate && (collectDate < currentBatch.dateStart || collectDate > currentBatch.dateEnd)) {
+      warnings.push(`采集日期不在批次「${currentBatch.name}」的日期范围（${currentBatch.dateStart} ~ ${currentBatch.dateEnd}）内`)
+    }
+    if (site && currentBatch.siteIds.length > 0 && !currentBatch.siteIds.includes(site.id)) {
+      warnings.push(`采集地「${site.name}」不在批次「${currentBatch.name}」的计划采集地内`)
+    }
+    return warnings
+  }, [currentBatch, collectDate, site])
 
   /** 每行自动生成互不冲突的标本编号（采集地代码-年份-流水号） */
   const codes = useMemo(() => {
@@ -97,6 +116,10 @@ export default function CollectPage(): JSX.Element {
       setError('每行都需要填写目')
       return
     }
+    if (currentBatch?.sealed) {
+      setError(`批次「${currentBatch.name}」已封存，不再接收新标本，请切换当前批次`)
+      return
+    }
     setError('')
     const rows: Specimen[] = drafts.map((draft) => ({
       id: uid('sp'),
@@ -116,11 +139,15 @@ export default function CollectPage(): JSX.Element {
       status: '待鉴定',
       determiner: '',
       siteId: site.id,
+      batchId: currentBatch?.id ?? '',
       note: draft.note.trim()
     }))
     await specimenStore.getState().saveMany(rows)
     setJustCreated(rows)
-    setMessage(`本批次已登记 ${rows.length} 份标本，编号：${rows.map((row) => row.code).join('、')}`)
+    setMessage(
+      `本批次已登记 ${rows.length} 份标本，编号：${rows.map((row) => row.code).join('、')}` +
+        (currentBatch ? `；已自动归入批次「${currentBatch.name}」` : '；未关联采集批次')
+    )
     setDrafts([newDraft()])
   }
 
@@ -132,6 +159,44 @@ export default function CollectPage(): JSX.Element {
           选择采集地后自动带出生境与小生境；支持一次提交多条同批次标本，编号按「采集地代码-年份-流水号」自动生成并查重。
         </p>
       </header>
+
+      <section className="panel flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium text-slate-700">当前采集批次</span>
+        {openBatches.length > 0 ? (
+          <select
+            className="field-input w-64"
+            value={currentBatch?.id ?? ''}
+            onChange={(e) => void batchStore.getState().setCurrent(e.target.value)}
+            data-testid="current-batch-select"
+          >
+            <option value="">不关联批次</option>
+            {openBatches.map((batch) => (
+              <option key={batch.id} value={batch.id}>
+                {batch.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {currentBatch ? (
+          <span className="text-xs text-slate-500">
+            {currentBatch.dateStart} ~ {currentBatch.dateEnd} · 负责人 {currentBatch.leader || '—'} · 新登记的标本将自动归入该批次
+          </span>
+        ) : (
+          <span className="text-xs text-slate-500">
+            {openBatches.length > 0 ? '未选择批次，标本将不关联批次' : '暂无进行中的批次，'}
+            {openBatches.length === 0 ? (
+              <Link className="text-field-700 underline" to="/batches">
+                去「采集批次」建立
+              </Link>
+            ) : null}
+          </span>
+        )}
+        {batchWarnings.map((warning) => (
+          <p key={warning} className="w-full rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+            {warning}（仍可登记，收队封存时会被标为异常）
+          </p>
+        ))}
+      </section>
 
       <section className="grid gap-4 md:grid-cols-[320px_1fr]">
         <div className="panel">
@@ -308,7 +373,7 @@ export default function CollectPage(): JSX.Element {
           <h2 className="text-sm font-semibold text-slate-700">刚刚登记入库的标本</h2>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {justCreated.map((specimen) => (
-              <SpecimenCard key={specimen.id} specimen={specimen} site={site} />
+              <SpecimenCard key={specimen.id} specimen={specimen} site={site} batchName={currentBatch?.name} />
             ))}
           </div>
         </section>

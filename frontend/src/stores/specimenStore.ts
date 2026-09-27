@@ -10,6 +10,8 @@ export interface SpecimenState {
   saveMany: (rows: Specimen[]) => Promise<void>
   remove: (id: string) => Promise<void>
   bulkSetStatus: (ids: string[], status: DetStatus) => Promise<void>
+  /** 批量调整标本所属批次（空串表示移出批次） */
+  bulkSetBatch: (ids: string[], batchId: string) => Promise<void>
   codes: () => string[]
 }
 
@@ -39,6 +41,14 @@ export const specimenStore = create<SpecimenState>((set, get) => ({
     await putRows<Specimen>(
       db.specimens,
       targets.map((row) => ({ ...row, status }))
+    )
+    await get().hydrate()
+  },
+  bulkSetBatch: async (ids, batchId) => {
+    const targets = get().rows.filter((row) => ids.includes(row.id))
+    await putRows<Specimen>(
+      db.specimens,
+      targets.map((row) => ({ ...row, batchId }))
     )
     await get().hydrate()
   },
